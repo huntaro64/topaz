@@ -62,6 +62,7 @@
 #include "../utils/attackutils.h"
 #include "../utils/charutils.h"
 #include "../utils/battleutils.h"
+#include "../utils/gardenutils.h"
 #include "../item_container.h"
 #include "../items/item_weapon.h"
 #include "../items/item_usable.h"
@@ -76,7 +77,6 @@
 #include "../packets/char_job_extra.h"
 #include "../packets/status_effects.h"
 #include "../mobskill.h"
-
 
 CCharEntity::CCharEntity()
 {
@@ -212,6 +212,8 @@ CCharEntity::CCharEntity()
     m_moghouseID = 0;
     m_moghancementID = 0;
 
+    m_Substate = CHAR_SUBSTATE::SUBSTATE_NONE;
+
     PAI = std::make_unique<CAIContainer>(this, nullptr, std::make_unique<CPlayerController>(this),
         std::make_unique<CTargetFind>(this));
 }
@@ -253,6 +255,10 @@ void CCharEntity::clearPacketList()
 
 void CCharEntity::pushPacket(CBasicPacket* packet)
 {
+    TracyZoneScoped;
+    TracyZoneIString(GetName());
+    TracyZoneHex16(packet->id());
+
     std::lock_guard<std::mutex> lk(m_PacketListMutex);
     PacketList.push_back(packet);
 }
@@ -491,6 +497,10 @@ void CCharEntity::RemoveTrust(CTrustEntity* PTrust)
     auto trustIt = std::find_if(PTrusts.begin(), PTrusts.end(), [PTrust](auto trust) { return PTrust == trust; });
     if (trustIt != PTrusts.end())
     {
+        if (PTrust->animation == ANIMATION_DESPAWN)
+        {
+            luautils::OnMobDespawn(PTrust);
+        }
         PTrust->PAI->Despawn();
         PTrusts.erase(trustIt);
     }
@@ -511,6 +521,7 @@ void CCharEntity::ClearTrusts()
 
 void CCharEntity::Tick(time_point tick)
 {
+    TracyZoneScoped;
     CBattleEntity::Tick(tick);
     if (m_DeathTimestamp > 0 && tick >= m_deathSyncTime)
     {
@@ -518,10 +529,16 @@ void CCharEntity::Tick(time_point tick)
         updatemask |= UPDATE_STATUS;
         m_deathSyncTime = tick + death_update_frequency;
     }
+
+    if (m_moghouseID != 0)
+    {
+        gardenutils::UpdateGardening(this, true);
+    }
 }
 
 void CCharEntity::PostTick()
 {
+    TracyZoneScoped;
     CBattleEntity::PostTick();
     if (m_EquipSwap)
     {
@@ -666,7 +683,7 @@ bool CCharEntity::CanAttack(CBattleEntity* PTarget, std::unique_ptr<CBasicPacket
         PAI->Disengage();
         return false;
     }
-    else if (!isFaceing(this->loc.p, PTarget->loc.p, 40))
+    else if (!facing(this->loc.p, PTarget->loc.p, 64))
     {
         errMsg = std::make_unique<CMessageBasicPacket>(this, PTarget, 0, 0, MSGBASIC_UNABLE_TO_SEE_TARG);
         return false;
@@ -694,7 +711,7 @@ bool CCharEntity::OnAttack(CAttackState& state, action_t& action)
             for (auto&& PPotentialTarget : this->SpawnMOBList)
             {
                 if (PPotentialTarget.second->animation == ANIMATION_ATTACK &&
-                    isFaceing(this->loc.p, PPotentialTarget.second->loc.p, 64) &&
+                    facing(this->loc.p, PPotentialTarget.second->loc.p, 64) &&
                     distance(this->loc.p, PPotentialTarget.second->loc.p) <= 10)
                 {
                     std::unique_ptr<CBasicPacket> errMsg;
@@ -1686,6 +1703,9 @@ void CCharEntity::Die(duration _duration)
     PAI->ClearStateStack();
     PAI->Internal_Die(_duration);
 
+    // If player allegiance is not reset on death they will auto-homepoint
+    allegiance = ALLEGIANCE_PLAYER;
+
     // reraise modifiers
     if (this->getMod(Mod::RERAISE_I) > 0)
         m_hasRaise = 1;
@@ -1764,7 +1784,7 @@ void CCharEntity::UpdateMoghancement()
                 CItemFurnishing* PFurniture = static_cast<CItemFurnishing*>(PItem);
                 if (PFurniture->isInstalled())
                 {
-                    elements[PFurniture->getElement()] += PFurniture->getAura();
+                    elements[PFurniture->getElement() - 1] += PFurniture->getAura();
                 }
             }
         }
@@ -1774,9 +1794,9 @@ void CCharEntity::UpdateMoghancement()
     uint8 dominantElement = 0;
     uint16 dominantAura = 0;
     bool hasTiedElements = false;
-    for (uint8 elementID = 0; elementID < 8; ++elementID)
+    for (uint8 elementID = 1; elementID < 9; ++elementID)
     {
-        uint16 aura = elements[elementID];
+        uint16 aura = elements[elementID - 1];
         if (aura > dominantAura)
         {
             dominantElement = elementID;
@@ -1986,7 +2006,7 @@ void CCharEntity::SetMoghancement(uint16 moghancementID)
                 addModifier(Mod::EXPERIENCE_RETAINED, 5);
                 break;
             case MOGHANCEMENT_GARDENING:
-                // TODO: Reduces the chances of plants withering when gardening
+                addModifier(Mod::GARDENING_WILT_BONUS, 36);
                 break;
             case MOGHANCEMENT_DESYNTHESIS:
                 addModifier(Mod::DESYNTH_SUCCESS, 2);

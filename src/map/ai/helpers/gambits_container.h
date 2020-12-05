@@ -1,4 +1,36 @@
-﻿#ifndef _GAMBITSCONTAINER
+﻿/*
+===========================================================================
+
+    Copyright (c) 2020 Project Topaz
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+    ---
+
+    ADDITIONAL RESTRICTIONS PERTAINING TO ATTRIBUTION AND MISREPRESENTATION
+    APPLY TO THIS SOFTWARE.
+
+    ADDITIONAL PERMISSIONS MAY APPLY TO THIS SOFTWARE.
+
+    You should have received a full copy of these additional terms included
+    in a license along with this program. If not, see:
+    <http://project-topaz.com/blob/release/LICENSE>
+
+===========================================================================
+*/
+
+#ifndef _GAMBITSCONTAINER
 #define _GAMBITSCONTAINER
 
 #include "../../../common/cbasetypes.h"
@@ -10,16 +42,22 @@
 #include "../../status_effect.h"
 #include "../../status_effect_container.h"
 
+#include <set>
+
 namespace gambits
 {
 
 enum class G_TARGET : uint16
 {
-    SELF   = 0,
-    PARTY  = 1,
-    TARGET = 2,
-    MASTER = 3,
-    TANK   = 4,
+    SELF       = 0,
+    PARTY      = 1,
+    TARGET     = 2,
+    MASTER     = 3,
+    TANK       = 4,
+    MELEE      = 5,
+    RANGED     = 6,
+    CASTER     = 7,
+    TOP_ENMITY = 8,
 };
 
 enum class G_CONDITION : uint16
@@ -47,13 +85,13 @@ enum class G_CONDITION : uint16
 
 enum class G_REACTION : uint16
 {
-    ATTACK = 0,
-    ASSIST = 1,
-    MA     = 2,
-    JA     = 3,
-    WS     = 4,
-    MS     = 5,
-    MSG    = 6,
+    ATTACK  = 0,
+    RATTACK = 1,
+    MA      = 2,
+    JA      = 3,
+    WS      = 4,
+    MS      = 5,
+    MSG     = 6,
 };
 
 enum class G_SELECT : uint16
@@ -151,7 +189,6 @@ struct TrustSkill_t
 {
     G_REACTION skill_type;
     uint32 skill_id;
-    uint32 min_level;
     uint8 primary;
     uint8 secondary;
     uint8 tertiary;
@@ -160,7 +197,10 @@ struct TrustSkill_t
 class CGambitsContainer
 {
 public:
-    CGambitsContainer(CTrustEntity* trust) : POwner(trust) {}
+    CGambitsContainer(CTrustEntity* trust)
+        : POwner(trust)
+    {
+    }
     ~CGambitsContainer() = default;
 
     void AddGambit(Gambit_t gambit);
@@ -178,6 +218,36 @@ private:
     CTrustEntity* POwner;
     time_point m_lastAction;
     std::vector<Gambit_t> gambits;
+
+    std::set<JOBTYPE> melee_jobs =
+    {
+        JOB_WAR,
+        JOB_MNK,
+        JOB_THF,
+        JOB_PLD,
+        JOB_DRK,
+        JOB_BST,
+        JOB_SAM,
+        JOB_NIN,
+        JOB_DRG,
+        JOB_BLU,
+        JOB_PUP,
+        JOB_DNC,
+        JOB_RUN,
+    };
+
+    std::set<JOBTYPE> caster_jobs =
+    {
+        JOB_WHM,
+        JOB_BLM,
+        JOB_RDM,
+        JOB_BRD,
+        JOB_SMN,
+        JOB_BLU,
+        JOB_SCH,
+        JOB_GEO,
+        JOB_RUN,
+    };
 };
 
 } // namespace gambits

@@ -63,12 +63,7 @@ public:
     int32 getLocalVar(lua_State*);
     int32 setLocalVar(lua_State*);
     int32 resetLocalVars(lua_State*);
-
-    // Masks and Bitwise Operations
-    int32 getMaskBit(lua_State*);           // Retrieves a single bit in a character variable
-    int32 setMaskBit(lua_State*);           // Sets a single bit in a character variable
-    int32 countMaskBits(lua_State*);        // Retrieves number of true bits in a character variable
-    int32 isMaskFull(lua_State*);           // Checks if a bitmask stored in a character varable of a specified size contains all set bits
+    int32 getLastOnline(lua_State*);        // Returns the unix timestamp of last time the player logged out or zoned
 
     // Packets, Events, and Flags
     int32 injectPacket(lua_State*);         // Send the character a packet kept in a file
@@ -141,9 +136,14 @@ public:
     int32 sendEmote(lua_State*);             // Character emits emote packet.
 
     // Location and Positioning
-    int32 isBehind(lua_State*);              // true if you're behind the input target
+
+    int32 getWorldAngle(lua_State* L);       // return angle (rot) between two points (vector from a to b), aligned to absolute cardinal degree
+    int32 getFacingAngle(lua_State* L);      // return angle between entity rot and target pos, aligned to number of degrees of difference
     int32 isFacing(lua_State*);              // true if you are facing the target
-    int32 getAngle(lua_State* L);            // return angle (rot) between two points (vector from a to b)
+    int32 isInfront(lua_State*);             // true if you're infront of the input target
+    int32 isBehind(lua_State*);              // true if you're behind the input target
+    int32 isBeside(lua_State*);              // true if you're to the side of the input target
+
     int32 getZone(lua_State*);               // Get Entity zone
     int32 getZoneID(lua_State*);             // Get Entity zone ID
     int32 getZoneName(lua_State*);           // Get Entity zone name
@@ -515,7 +515,8 @@ public:
     int32 updateEnmityFromCure(lua_State*);
     int32 resetEnmity(lua_State*);             //resets enmity to player for specificed mob
     int32 updateClaim(lua_State*);             // Adds Enmity to player for specified mob and claims
-    int32 hasEnmity(lua_State*);               // Checks if you have ANY enmity with ANY mob in the zone
+    int32 hasEnmity(lua_State*);               // Does the player have any enmity at all from any source
+    int32 getNotorietyList(lua_State*);        // Returns a table with all of the entities on a chars notoriety list
 
     // Status Effects
     int32 addStatusEffect(lua_State*);         // Adds status effect to character
@@ -606,7 +607,7 @@ public:
     int32 trustPartyMessage(lua_State*);
     int32 addSimpleGambit(lua_State*);
     int32 addFullGambit(lua_State*);
-    int32 setTPSkills(lua_State*);
+    int32 setTrustTPSkillSettings(lua_State*);
 
     int32 isJugPet(lua_State*);              // If the entity has a pet, test if it is a jug pet.
     int32 hasValidJugPetItem(lua_State*);

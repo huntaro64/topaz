@@ -1,15 +1,52 @@
-﻿#include "gambits_container.h"
+﻿/*
+===========================================================================
+
+    Copyright (c) 2020 Project Topaz
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published
+    by the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Affero General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+    ---
+
+    ADDITIONAL RESTRICTIONS PERTAINING TO ATTRIBUTION AND MISREPRESENTATION
+    APPLY TO THIS SOFTWARE.
+
+    ADDITIONAL PERMISSIONS MAY APPLY TO THIS SOFTWARE.
+
+    You should have received a full copy of these additional terms included
+    in a license along with this program. If not, see:
+    <http://project-topaz.com/blob/release/LICENSE>
+
+===========================================================================
+*/
+
+#include "gambits_container.h"
 
 #include "../../ability.h"
+#include "../../enmity_container.h"
 #include "../../spell.h"
 #include "../../mobskill.h"
 #include "../../weapon_skill.h"
 #include "../../ai/states/ability_state.h"
 #include "../../ai/states/mobskill_state.h"
 #include "../../ai/states/magic_state.h"
+#include "../../ai/states/range_state.h"
 #include "../../ai/states/weaponskill_state.h"
 #include "../../utils/battleutils.h"
 #include "../../utils/trustutils.h"
+
+#include "../controllers/player_controller.h"
+#include "../../weapon_skill.h"
 
 namespace gambits
 {
@@ -18,6 +55,8 @@ namespace gambits
 // Check levels, etc.
 void CGambitsContainer::AddGambit(Gambit_t gambit)
 {
+    TracyZoneScoped;
+
     bool available = true;
     for (auto& action : gambit.actions)
     {
@@ -37,6 +76,8 @@ void CGambitsContainer::AddGambit(Gambit_t gambit)
 
 void CGambitsContainer::Tick(time_point tick)
 {
+    TracyZoneScoped;
+
     if (tick < m_lastAction)
     {
         return;
@@ -45,6 +86,7 @@ void CGambitsContainer::Tick(time_point tick)
     // TODO: Is this necessary?
     // Not already doing something
     if (POwner->PAI->IsCurrentState<CAbilityState>() ||
+        POwner->PAI->IsCurrentState<CRangeState>() ||
         POwner->PAI->IsCurrentState<CMagicState>() ||
         POwner->PAI->IsCurrentState<CWeaponSkillState>() ||
         POwner->PAI->IsCurrentState<CMobSkillState>())
@@ -66,6 +108,11 @@ void CGambitsContainer::Tick(time_point tick)
 
     auto runPredicate = [&](Predicate_t& predicate) -> bool
     {
+        auto isValidMember = [&](CBattleEntity* PPartyTarget) -> bool
+        {
+            return PPartyTarget->isAlive() && POwner->loc.zone == PPartyTarget->loc.zone && distance(POwner->loc.p, PPartyTarget->loc.p) <= 15.0f;
+        };
+
         if (predicate.target == G_TARGET::SELF)
         {
             return CheckTrigger(POwner, predicate);
@@ -76,13 +123,6 @@ void CGambitsContainer::Tick(time_point tick)
         }
         else if (predicate.target == G_TARGET::PARTY)
         {
-            auto isValidMember = [&](CBattleEntity* PPartyTarget) -> bool
-            {
-                return PPartyTarget->isAlive() &&
-                    POwner->loc.zone == PPartyTarget->loc.zone &&
-                    distance(POwner->loc.p, PPartyTarget->loc.p) <= 15.0f;
-            };
-
             auto result = false;
             static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
             {
@@ -91,12 +131,74 @@ void CGambitsContainer::Tick(time_point tick)
                     result = true;
                 }
             });
-
             return result;
         }
         else if (predicate.target == G_TARGET::MASTER)
         {
             return CheckTrigger(POwner->PMaster, predicate);
+        }
+        else if (predicate.target == G_TARGET::TANK)
+        {
+            auto result = false;
+            static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+            {
+                if (isValidMember(PMember) && CheckTrigger(PMember, predicate) && (PMember->GetMJob() == JOB_PLD || PMember->GetMJob() == JOB_RUN))
+                {
+                    result = true;
+                }
+            });
+            return result;
+        }
+        else if (predicate.target == G_TARGET::MELEE)
+        {
+            auto result = false;
+            static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+            {
+                if (isValidMember(PMember) && CheckTrigger(PMember, predicate) && melee_jobs.find(PMember->GetMJob()) != melee_jobs.end())
+                {
+                    result = true;
+                }
+            });
+            return result;
+        }
+        else if (predicate.target == G_TARGET::RANGED)
+        {
+            auto result = false;
+            static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+            {
+                if (isValidMember(PMember) && CheckTrigger(PMember, predicate) && (PMember->GetMJob() == JOB_RNG || PMember->GetMJob() == JOB_COR))
+                {
+                    result = true;
+                }
+            });
+            return result;
+        }
+        else if (predicate.target == G_TARGET::CASTER)
+        {
+            auto result = false;
+            static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+            {
+                if (isValidMember(PMember) && CheckTrigger(PMember, predicate) && caster_jobs.find(PMember->GetMJob()) != caster_jobs.end())
+                {
+                    result = true;
+                }
+            });
+            return result;
+        }
+        else if (predicate.target == G_TARGET::TOP_ENMITY)
+        {
+            auto result = false;
+            if (auto PMob = dynamic_cast<CMobEntity*>(POwner->GetBattleTarget()))
+            {
+                static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+                {
+                    if (isValidMember(PMember) && CheckTrigger(PMember, predicate) && PMob->PEnmityContainer->GetHighestEnmity() == PMember)
+                    {
+                        result = true;
+                    }
+                });
+            }
+            return result;
         }
 
         // Fallthrough
@@ -124,6 +226,11 @@ void CGambitsContainer::Tick(time_point tick)
             }
             if (!all_predicates_true) { break; }
 
+            auto isValidMember = [this](CBattleEntity* PSettableTarget, CBattleEntity* PPartyTarget)
+            {
+                return !PSettableTarget && PPartyTarget->isAlive() && POwner->loc.zone == PPartyTarget->loc.zone && distance(POwner->loc.p, PPartyTarget->loc.p) <= 15.0f;
+            };
+
             // TODO: This whole section is messy and bonkers
             // Try and extract target out the first predicate
             CBattleEntity* target = nullptr;
@@ -138,16 +245,9 @@ void CGambitsContainer::Tick(time_point tick)
             }
             else if (gambit.predicates[0].target == G_TARGET::PARTY)
             {
-                auto isValidMember = [&](CBattleEntity* PPartyTarget)
-                {
-                    return !target && PPartyTarget->isAlive() &&
-                        POwner->loc.zone == PPartyTarget->loc.zone &&
-                        distance(POwner->loc.p, PPartyTarget->loc.p) <= 15.0f;
-                };
-
                 static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
                 {
-                    if (isValidMember(PMember) && CheckTrigger(PMember, gambit.predicates[0]))
+                    if (isValidMember(target, PMember) && CheckTrigger(PMember, gambit.predicates[0]))
                     {
                         target = PMember;
                     }
@@ -159,7 +259,56 @@ void CGambitsContainer::Tick(time_point tick)
             }
             else if (gambit.predicates[0].target == G_TARGET::TANK)
             {
-                // TODO
+                static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+                {
+                    if (isValidMember(target, PMember) && CheckTrigger(PMember, gambit.predicates[0]) && (PMember->GetMJob() == JOB_PLD || PMember->GetMJob() == JOB_RUN))
+                    {
+                        target = PMember;
+                    }
+                });
+            }
+            else if (gambit.predicates[0].target == G_TARGET::MELEE)
+            {
+                static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+                {
+                    if (isValidMember(target, PMember) && CheckTrigger(PMember, gambit.predicates[0]) && melee_jobs.find(PMember->GetMJob()) != melee_jobs.end())
+                    {
+                        target = PMember;
+                    }
+                });
+            }
+            else if (gambit.predicates[0].target == G_TARGET::RANGED)
+            {
+                static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+                {
+                    if (isValidMember(target, PMember) && CheckTrigger(PMember, gambit.predicates[0]) && (PMember->GetMJob() == JOB_RNG || PMember->GetMJob() == JOB_COR))
+                    {
+                        target = PMember;
+                    }
+                });
+            }
+            else if (gambit.predicates[0].target == G_TARGET::CASTER)
+            {
+                static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+                {
+                    if (isValidMember(target, PMember) && CheckTrigger(PMember, gambit.predicates[0]) && caster_jobs.find(PMember->GetMJob()) != caster_jobs.end())
+                    {
+                        target = PMember;
+                    }
+                });
+            }
+            else if (gambit.predicates[0].target == G_TARGET::TOP_ENMITY)
+            {
+                if (auto PMob = dynamic_cast<CMobEntity*>(POwner->GetBattleTarget()))
+                {
+                    static_cast<CCharEntity*>(POwner->PMaster)->ForPartyWithTrusts([&](CBattleEntity* PMember)
+                    {
+                        if (isValidMember(target, PMember) && CheckTrigger(PMember, gambit.predicates[0]) && PMob->PEnmityContainer->GetHighestEnmity() == PMember)
+                        {
+                            target = PMember;
+                        }
+                    });
+                }
             }
 
             if (!target)
@@ -167,7 +316,11 @@ void CGambitsContainer::Tick(time_point tick)
                 break;
             }
 
-            if (action.reaction == G_REACTION::MA)
+            if (action.reaction == G_REACTION::RATTACK)
+            {
+                controller->RangedAttack(target->targid);
+            }
+            else if (action.reaction == G_REACTION::MA)
             {
                 if (action.select == G_SELECT::SPECIFIC)
                 {
@@ -275,6 +428,8 @@ void CGambitsContainer::Tick(time_point tick)
 
 bool CGambitsContainer::CheckTrigger(CBattleEntity* trigger_target, Predicate_t& predicate)
 {
+    TracyZoneScoped;
+
     auto controller = static_cast<CTrustController*>(POwner->PAI->GetController());
     switch (predicate.condition)
     {
@@ -382,6 +537,8 @@ bool CGambitsContainer::CheckTrigger(CBattleEntity* trigger_target, Predicate_t&
 
 bool CGambitsContainer::TryTrustSkill()
 {
+    TracyZoneScoped;
+
     auto target = POwner->GetBattleTarget();
 
     auto checkTPTrigger = [&]() -> bool
@@ -433,7 +590,7 @@ bool CGambitsContainer::TryTrustSkill()
         {
             case G_SELECT::RANDOM:
             {
-                chosen_skill = tp_skills.at(tpzrand::GetRandomNumber(tp_skills.size() - 1));
+                chosen_skill = tpzrand::GetRandomElement(tp_skills);
                 break;
             }
             case G_SELECT::HIGHEST: // Form the best possible skillchain
@@ -472,6 +629,42 @@ bool CGambitsContainer::TryTrustSkill()
                         }
                     }
                 }
+                break;
+            }
+            case G_SELECT::SPECIAL_AYAME:
+            {
+                auto PMaster = static_cast<CCharEntity*>(POwner->PMaster);
+                auto PMasterController = static_cast<CPlayerController*>(PMaster->PAI->GetController());
+                auto PMasterLastWeaponSkill = PMasterController->getLastWeaponSkill();
+
+                if (PMasterLastWeaponSkill != nullptr)
+                {
+                    for (auto& skill : tp_skills)
+                    {
+                        std::list<SKILLCHAIN_ELEMENT> resonanceProperties;
+                        resonanceProperties.push_back((SKILLCHAIN_ELEMENT)PMasterLastWeaponSkill->getPrimarySkillchain());
+                        resonanceProperties.push_back((SKILLCHAIN_ELEMENT)PMasterLastWeaponSkill->getSecondarySkillchain());
+                        resonanceProperties.push_back((SKILLCHAIN_ELEMENT)PMasterLastWeaponSkill->getTertiarySkillchain());
+
+                        std::list<SKILLCHAIN_ELEMENT> skillProperties;
+                        skillProperties.push_back((SKILLCHAIN_ELEMENT)skill.primary);
+                        skillProperties.push_back((SKILLCHAIN_ELEMENT)skill.secondary);
+                        skillProperties.push_back((SKILLCHAIN_ELEMENT)skill.tertiary);
+                        if (SKILLCHAIN_ELEMENT possible_skillchain = battleutils::FormSkillchain(resonanceProperties, skillProperties); possible_skillchain != SC_NONE)
+                        {
+                            if (possible_skillchain >= chosen_skillchain)
+                            {
+                                chosen_skill = skill;
+                                chosen_skillchain = possible_skillchain;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    chosen_skill = tp_skills.at(tp_skills.size() - 1);
+                }
+
                 break;
             }
             default: { break; }

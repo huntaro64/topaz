@@ -3,7 +3,9 @@
 ---------------------------------------------------------
 require("scripts/globals/common")
 require("scripts/globals/keyitems")
+require("scripts/globals/magic")
 require("scripts/globals/msg")
+require("scripts/globals/roe")
 require("scripts/globals/settings")
 require("scripts/globals/status")
 ---------------------------------------------------------
@@ -23,6 +25,8 @@ tpz.trust.message_offset =
     DESPAWN        = 11,
     SPECIAL_MOVE_1 = 18,
 }
+
+local MAX_MESSAGE_PAGE = 120
 
 local rovKIBattlefieldIDs = set{
     5,    -- Shattering Stars (WAR LB5)
@@ -47,9 +51,59 @@ local rovKIBattlefieldIDs = set{
     1154, -- The Beast Within (BLU LB5)
 -- TODO: GEO LB5
 -- TODO: RUN LB5
-} 
+}
+
+tpz.trust.onTradeCipher = function(player, trade, csid, rovCs, arkAngelCs)
+    local hasPermit = player:hasKeyItem(tpz.ki.WINDURST_TRUST_PERMIT) or
+                      player:hasKeyItem(tpz.ki.BASTOK_TRUST_PERMIT) or
+                      player:hasKeyItem(tpz.ki.SAN_DORIA_TRUST_PERMIT)
+
+    local itemId = trade:getItemId(0)
+    local subId = trade:getItemSubId(0)
+    local isCipher = itemId >= 10112 and itemId <= 10193
+
+    if hasPermit and trade:getSlotCount() == 1 and subId ~= 0 and isCipher then
+        -- subId is a smallInt in the database (16 bits).
+        -- The bottom 12 bits of the subId are the spellId taught by the ciper
+        -- The top 4 bits of the subId are for the flags to be given to the csid
+        local spellId = bit.band(subId, 0x0FFF)
+        local flags = bit.rshift(bit.band(subId, 0xF000), 12)
+
+        -- To generate this packed subId for storage in the db:
+        -- local encoded = spellId + bit.lshift(flags, 12)
+
+        -- Cipher type cs args (Wetata's text as example):
+        -- 0 (add 0)    : Did you know that the person mentioned here is also a participant in the Trust initiative?
+        --                All the stuffiest scholars... (Default)
+        -- 1 (add 4096) : Wait a second... just who is that? How am I supposed to use <cipher> in conditions like these? (WOTG)
+        -- 2 (add 8192) : You may be shocked to hear that there are trusts beyond the five races (Beasts & Monsters)
+        -- 3 (add 12288): How on earth did you get your hands on this? If it's a real cipher I have to try! (Special)
+        -- 4 (add 16384): Progressed leaps and bounds. You and that person must have something truly special-wecial going on between you.
+        --                (Mainline story princesses and II trust versions??)
+
+        player:setLocalVar("TradingTrustCipher", spellId)
+
+        -- TODO Blocking for ROV ciphers
+        local rovBlock = false
+        local arkAngelCipher = itemId >= 10188 and itemId <= 10192
+
+        if rovBlock then
+            player:startEvent(rovCs)
+        elseif arkAngelCipher then
+            player:startEvent(arkAngelCs, 0, 0, 0, itemId)
+        else
+            player:startEvent(csid, 0, 0, flags, itemId)
+        end
+    end
+end
 
 tpz.trust.canCast = function(caster, spell, not_allowed_trust_ids)
+
+    -- Trusts must be enabled in settings
+    if ENABLE_TRUST_CASTING == 0 then
+        return tpz.msg.basic.TRUST_NO_CAST_TRUST
+    end
+
     -- Trusts not allowed in an alliance
     if caster:checkSoloPartyAlliance() == 2 then
         return tpz.msg.basic.TRUST_NO_CAST_TRUST
@@ -79,7 +133,7 @@ tpz.trust.canCast = function(caster, spell, not_allowed_trust_ids)
         caster:messageSystem(tpz.msg.system.TRUST_DELAY_NEW_PARTY_MEMBER)
         return -1
     end
-    
+
     -- Trusts cannot be summoned if you have hate
     if caster:hasEnmity() then
         caster:messageSystem(tpz.msg.system.TRUST_NO_ENMITY)
@@ -144,15 +198,28 @@ end
 tpz.trust.spawn = function(caster, spell)
     caster:spawnTrust(spell:getID())
 
+    -- Records of Eminence: Call Forth an Alter Ego
+    if caster:getEminenceProgress(932) then
+        tpz.roe.onRecordTrigger(caster, 932)
+    end
+
     return 0
 end
 
-tpz.trust.message = function(mob, message_offset)
-    local trust_offset = tpz.msg.system.GLOBAL_TRUST_OFFSET + (mob:getTrustID() - 896) * 100
+-- page_offset is: (summon_message_id - 1) / 100
+-- Example: Shantotto II summon message ID: 11201
+-- page_offset: (11201 - 1) / 100 = 112
+tpz.trust.message = function(mob, page_offset, message_offset)
+
+    if page_offset > MAX_MESSAGE_PAGE then
+        return
+    end
+
+    local trust_offset = tpz.msg.system.GLOBAL_TRUST_OFFSET + (page_offset * 100)
     mob:trustPartyMessage(trust_offset + message_offset)
 end
 
-tpz.trust.teamworkMessage = function(mob, teamwork_messages)
+tpz.trust.teamworkMessage = function(mob, page_offset, teamwork_messages)
     local messages = {}
 
     local master = mob:getMaster()
@@ -168,16 +235,22 @@ tpz.trust.teamworkMessage = function(mob, teamwork_messages)
     end
 
     if table.getn(messages) > 0 then
-        tpz.trust.message(mob, messages[math.random(#messages)])
+        tpz.trust.message(mob, page_offset, messages[math.random(#messages)])
     else
         -- Defaults to regular spawn message
-        tpz.trust.message(mob, tpz.trust.message_offset.SPAWN)
+        tpz.trust.message(mob, page_offset, tpz.trust.message_offset.SPAWN)
     end
 end
 
 -- For debugging and lining up teamwork messages
-tpz.trust.dumpMessages = function(mob)
+tpz.trust.dumpMessages = function(mob, page_offset)
     for i=0, 20 do
-        tpz.trust.message(mob, i)
+        tpz.trust.message(mob, page_offset, i)
+    end
+end
+
+tpz.trust.dumpMessagePages = function(mob)
+    for i=0, 120 do
+        tpz.trust.message(mob, i, tpz.trust.message_offset.SPAWN)
     end
 end

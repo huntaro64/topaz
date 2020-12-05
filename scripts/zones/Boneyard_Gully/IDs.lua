@@ -12,13 +12,17 @@ zones[tpz.zone.BONEYARD_GULLY] = {
         ITEM_OBTAINED           = 6388, -- Obtained: <item>.
         GIL_OBTAINED            = 6389, -- Obtained <number> gil.
         KEYITEM_OBTAINED        = 6391, -- Obtained key item: <keyitem>.
+        CARRIED_OVER_POINTS     = 6999, -- You have carried over <number> login point[/s].
+        LOGIN_CAMPAIGN_UNDERWAY = 7000, -- The [/January/February/March/April/May/June/July/August/September/October/November/December] <number> Login Campaign is currently underway!<space>
+        LOGIN_NUMBER            = 7001, -- In celebration of your most recent login (login no. <number>), we have provided you with <number> points! You currently have a total of <number> points.
         CONQUEST_BASE           = 7421, -- Tallying conquest results...
         TUCHULCHA_SANDPIT       = 7740, -- Tuchulcha retreats beneath the soil!
     },
-    mob = {
-
+    mob =
+    {
     },
-    npc = {
+    npc =
+    {
     },
     sheepInAntlionsClothing = {
         [1] = {
@@ -68,6 +72,26 @@ zones[tpz.zone.BONEYARD_GULLY] = {
                 { 478, 1.8, 557, 240 },
                 { 446, 1.8, 558, 240 },
             },
+        },
+    },
+    shellWeDance = {
+        [1] = {
+            PARATA_ID        = 16810024,
+            BLADMALL_ID      = 16810025,
+            PARATA_PET_IDS   = { 16810026, 16810027, 16810028 },
+            BLADMALL_PET_IDS = { 16810029, 16810030, 16810031 },
+        },
+        [2] = {
+            PARATA_ID        = 16810033,
+            BLADMALL_ID      = 16810034,
+            PARATA_PET_IDS   = { 16810035, 16810036, 16810037 },
+            BLADMALL_PET_IDS = { 16810038, 16810039, 16810040 },
+        },
+        [3] = {
+            PARATA_ID        = 16810042,
+            BLADMALL_ID      = 16810043,
+            PARATA_PET_IDS   = { 16810044, 16810045, 16810046 },
+            BLADMALL_PET_IDS = { 16810047, 16810048, 16810049 },
         },
     },
 }
